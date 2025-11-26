@@ -25,48 +25,97 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      
+
       - name: Setup PostgreSQL (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo systemctl start postgresql
-          sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';"
-          sudo -u postgres psql -c "CREATE DATABASE filemanager;"
+          sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'newpassword';"
+          sudo -u postgres psql -c "CREATE DATABASE \"FileManager\";"
           sudo sed -i 's/port = 5432/port = 5433/' /etc/postgresql/*/main/postgresql.conf
+          echo "local all all md5" | sudo tee /etc/postgresql/*/main/pg_hba.conf
+          echo "host all all 127.0.0.1/32 md5" | sudo tee -a /etc/postgresql/*/main/pg_hba.conf
+          echo "host all all ::1/128 md5" | sudo tee -a /etc/postgresql/*/main/pg_hba.conf
           sudo systemctl restart postgresql
-      
+          sleep 3
+          PGPASSWORD=newpassword psql -U postgres -h localhost -p 5433 -d FileManager -c "
+            CREATE TABLE public.users (
+              user_id SERIAL PRIMARY KEY,
+              username VARCHAR(50) NOT NULL UNIQUE,
+              password VARCHAR(255) NOT NULL,
+              email VARCHAR(100),
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE public.file_metadata (
+              file_id SERIAL PRIMARY KEY,
+              name VARCHAR(255) NOT NULL,
+              type VARCHAR(10) NOT NULL,
+              size BIGINT,
+              file_path VARCHAR(500) NOT NULL,
+              created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              modified_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              uploader_id BIGINT,
+              uploader_name VARCHAR(100),
+              editor_id BIGINT,
+              editor_name VARCHAR(100),
+              CONSTRAINT fk_uploader FOREIGN KEY (uploader_id) REFERENCES public.users (user_id) ON DELETE SET NULL,
+              CONSTRAINT fk_editor FOREIGN KEY (editor_id) REFERENCES public.users (user_id) ON DELETE SET NULL
+            );
+            CREATE INDEX idx_file_type ON public.file_metadata (type);
+            CREATE INDEX idx_file_uploader ON public.file_metadata (uploader_id);
+            CREATE INDEX idx_file_modified ON public.file_metadata (modified_date);
+          "
+
       - name: Setup PostgreSQL (macOS)
         if: matrix.os == 'macos-latest'
         run: |
           brew install postgresql@15
-          brew services start postgresql@15
+          /opt/homebrew/opt/postgresql@15/bin/initdb -D /opt/homebrew/var/postgresql@15 -U postgres --pwfile=<(echo 'newpassword') || true
+          /opt/homebrew/opt/postgresql@15/bin/pg_ctl -D /opt/homebrew/var/postgresql@15 -o "-p 5433" -l logfile start
           sleep 3
-          /opt/homebrew/opt/postgresql@15/bin/psql -d postgres -c "ALTER USER $(whoami) WITH PASSWORD 'postgres';"
-          /opt/homebrew/opt/postgresql@15/bin/createdb filemanager
-          /opt/homebrew/opt/postgresql@15/bin/psql -d postgres -c "ALTER SYSTEM SET port = 5433;"
-          brew services restart postgresql@15
-          sleep 3
-      
+          /opt/homebrew/opt/postgresql@15/bin/psql -U postgres -h localhost -p 5433 -d postgres -c "CREATE DATABASE \"FileManager\";"
+          /opt/homebrew/opt/postgresql@15/bin/psql -U postgres -h localhost -p 5433 -d FileManager -c "
+            CREATE TABLE public.users (
+              user_id SERIAL PRIMARY KEY,
+              username VARCHAR(50) NOT NULL UNIQUE,
+              password VARCHAR(255) NOT NULL,
+              email VARCHAR(100),
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE public.file_metadata (
+              file_id SERIAL PRIMARY KEY,
+              name VARCHAR(255) NOT NULL,
+              type VARCHAR(10) NOT NULL,
+              size BIGINT,
+              file_path VARCHAR(500) NOT NULL,
+              created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              modified_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              uploader_id BIGINT,
+              uploader_name VARCHAR(100),
+              editor_id BIGINT,
+              editor_name VARCHAR(100),
+              CONSTRAINT fk_uploader FOREIGN KEY (uploader_id) REFERENCES public.users (user_id) ON DELETE SET NULL,
+              CONSTRAINT fk_editor FOREIGN KEY (editor_id) REFERENCES public.users (user_id) ON DELETE SET NULL
+            );
+            CREATE INDEX idx_file_type ON public.file_metadata (type);
+            CREATE INDEX idx_file_uploader ON public.file_metadata (uploader_id);
+            CREATE INDEX idx_file_modified ON public.file_metadata (modified_date);
+          "
+
       - name: Setup PostgreSQL (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
-          choco install postgresql15 --params '/Password:postgres /Port:5433' -y
-          Set-Service -Name postgresql-x64-15 -StartupType Automatic
-          Start-Service -Name postgresql-x64-15
-          Start-Sleep -Seconds 5
-          & "C:\Program Files\PostgreSQL\15\bin\psql.exe" -U postgres -p 5433 -c "CREATE DATABASE filemanager;"
-      
+          choco install postgresql15 --params '/Password:newpassword /Port:5433' -y
+          Start-Sleep -Seconds 15
+          $env:PGPASSWORD = 'newpassword'
+          & "C:\Program Files\PostgreSQL\15\bin\psql.exe" -U postgres -h localhost -p 5433 -c "CREATE DATABASE `"FileManager`";"
+          & "C:\Program Files\PostgreSQL\15\bin\psql.exe" -U postgres -h localhost -p 5433 -d FileManager -c "CREATE TABLE public.users (user_id SERIAL PRIMARY KEY, username VARCHAR(50) NOT NULL UNIQUE, password VARCHAR(255) NOT NULL, email VARCHAR(100), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP); CREATE TABLE public.file_metadata (file_id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, type VARCHAR(10) NOT NULL, size BIGINT, file_path VARCHAR(500) NOT NULL, created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, modified_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, uploader_id BIGINT, uploader_name VARCHAR(100), editor_id BIGINT, editor_name VARCHAR(100), CONSTRAINT fk_uploader FOREIGN KEY (uploader_id) REFERENCES public.users (user_id) ON DELETE SET NULL, CONSTRAINT fk_editor FOREIGN KEY (editor_id) REFERENCES public.users (user_id) ON DELETE SET NULL); CREATE INDEX idx_file_type ON public.file_metadata (type); CREATE INDEX idx_file_uploader ON public.file_metadata (uploader_id); CREATE INDEX idx_file_modified ON public.file_metadata (modified_date);"
+
       - name: Install dependencies
         run: npm install
       
       - name: Run tests
-        env:
-          DB_HOST: localhost
-          DB_PORT: 5433
-          DB_USER: postgres
-          DB_PASSWORD: postgres
-          DB_NAME: filemanager
         run: npm test
       
       - name: Upload test logs
