@@ -116,7 +116,7 @@ jobs:
         run: npm install
       
       - name: Run tests
-        run: npm test
+        run: npm test -- --forceExit
       
       - name: Upload test logs
         if: always()
