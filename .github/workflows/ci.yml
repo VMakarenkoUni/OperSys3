@@ -26,18 +26,47 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       
-      - name: Cache node modules
-        uses: actions/cache@v4
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('backend/package.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
+      - name: Setup PostgreSQL (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo systemctl start postgresql
+          sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';"
+          sudo -u postgres psql -c "CREATE DATABASE filemanager;"
+          sudo sed -i 's/port = 5432/port = 5433/' /etc/postgresql/*/main/postgresql.conf
+          sudo systemctl restart postgresql
+      
+      - name: Setup PostgreSQL (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install postgresql@15
+          brew services start postgresql@15
+          sleep 3
+          /opt/homebrew/opt/postgresql@15/bin/psql -d postgres -c "ALTER USER $(whoami) WITH PASSWORD 'postgres';"
+          /opt/homebrew/opt/postgresql@15/bin/createdb filemanager
+          /opt/homebrew/opt/postgresql@15/bin/psql -d postgres -c "ALTER SYSTEM SET port = 5433;"
+          brew services restart postgresql@15
+          sleep 3
+      
+      - name: Setup PostgreSQL (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          choco install postgresql15 --params '/Password:postgres /Port:5433' -y
+          Set-Service -Name postgresql-x64-15 -StartupType Automatic
+          Start-Service -Name postgresql-x64-15
+          Start-Sleep -Seconds 5
+          & "C:\Program Files\PostgreSQL\15\bin\psql.exe" -U postgres -p 5433 -c "CREATE DATABASE filemanager;"
       
       - name: Install dependencies
         run: npm install
       
       - name: Run tests
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5433
+          DB_USER: postgres
+          DB_PASSWORD: postgres
+          DB_NAME: filemanager
         run: npm test
       
       - name: Upload test logs
