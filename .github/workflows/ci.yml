@@ -70,11 +70,12 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: |
           brew install postgresql@15
-          /opt/homebrew/opt/postgresql@15/bin/initdb -D /opt/homebrew/var/postgresql@15 -U postgres --pwfile=<(echo 'newpassword') || true
+          /opt/homebrew/opt/postgresql@15/bin/pg_ctl -D /opt/homebrew/var/postgresql@15 stop || true
           /opt/homebrew/opt/postgresql@15/bin/pg_ctl -D /opt/homebrew/var/postgresql@15 -o "-p 5433" -l logfile start
           sleep 3
-          /opt/homebrew/opt/postgresql@15/bin/psql -U postgres -h localhost -p 5433 -d postgres -c "CREATE DATABASE \"FileManager\";"
-          /opt/homebrew/opt/postgresql@15/bin/psql -U postgres -h localhost -p 5433 -d FileManager -c "
+          /opt/homebrew/opt/postgresql@15/bin/psql -h localhost -p 5433 -d postgres -c "CREATE USER postgres WITH PASSWORD 'newpassword' SUPERUSER;"
+          /opt/homebrew/opt/postgresql@15/bin/psql -h localhost -p 5433 -d postgres -c "CREATE DATABASE \"FileManager\" OWNER postgres;"
+          /opt/homebrew/opt/postgresql@15/bin/psql -h localhost -p 5433 -d FileManager -c "
             CREATE TABLE public.users (
               user_id SERIAL PRIMARY KEY,
               username VARCHAR(50) NOT NULL UNIQUE,
@@ -101,7 +102,6 @@ jobs:
             CREATE INDEX idx_file_uploader ON public.file_metadata (uploader_id);
             CREATE INDEX idx_file_modified ON public.file_metadata (modified_date);
           "
-
       - name: Setup PostgreSQL (Windows)
         if: matrix.os == 'windows-latest'
         shell: pwsh
